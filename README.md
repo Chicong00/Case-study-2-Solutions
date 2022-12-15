@@ -1,1 +1,1 @@
-# 🍕 Pizza runner: Solutions
+# 🍕 Pizza Runner: Solutions
