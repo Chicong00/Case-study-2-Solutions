@@ -240,3 +240,147 @@ GROUP BY format(order_time,'dddd')
 |Sunday	|1|
 
 ## B. Runner and Customer Experience
+### 1. How many runners signed up for each 1 week period? (i.e. week starts 2021-01-01)
+````sql
+select
+    DATEPART(WEEK,registration_date) registration_week,
+    count(runner_id) runner_count 
+from dbo.runners
+group by DATEPART(WEEK,registration_date)
+````
+|registration_week|runner_count|
+|---|---|
+|1	|1|
+|2	|2|
+|3	|1|
+
+### 2. What was the average time in minutes it took for each runner to arrive at the Pizza Runner HQ to pickup the order?
+````sql
+WITH time_taken_cte AS
+(
+  SELECT
+    c.order_id, 
+    c.order_time, 
+    r.pickup_time, 
+    DATEDIFF(MINUTE, c.order_time, r.pickup_time) AS pickup_minutes
+  FROM #customer_orders_cleaned AS c
+  JOIN #runner_orders_cleaned AS r
+    ON c.order_id = r.order_id
+  WHERE r.cancellation is null 
+  GROUP BY c.order_id, c.order_time, r.pickup_time
+)
+ 
+SELECT
+  AVG(pickup_minutes) AS avg_pickup_minutes
+FROM time_taken_cte
+WHERE pickup_minutes > 1;
+````
+|avg_pickup_minutes|
+|---|
+|16|
+
+### 3. Is there any relationship between the number of pizzas and how long the order takes to prepare?
+````sql
+WITH Preparation AS (
+  SELECT
+    c.order_id, 
+    c.order_time, 
+    r.pickup_time,
+    DATEDIFF(MINUTE, c.order_time, r.pickup_time) AS prep_time,
+    COUNT(c.pizza_id) AS pizza_count
+  FROM dbo.#customer_orders_cleaned c
+  JOIN dbo.#runner_orders_cleaned  r
+    ON c.order_id = r.order_id
+  WHERE r.cancellation IS NULL
+  GROUP BY c.order_id, c.order_time, r.pickup_time, 
+           DATEDIFF(MINUTE, c.order_time, r.pickup_time)
+)
+ 
+SELECT
+  pizza_count,
+  AVG(prep_time) AS avg_prep_time
+FROM Preparation
+GROUP BY pizza_count
+````
+|pizza_count|avg_prep_time|
+|---|---|
+|1	|12|
+|2	|18|
+|3	|30|
+
+### 4. What was the average distance travelled for each customer?
+````sql
+SELECT
+    c.customer_id,
+    round(avg(distance_km),2) avg_distance 
+from dbo.#runner_orders_cleaned  r 
+join dbo.#customer_orders_cleaned c
+on r.order_id = c.order_id  
+WHERE distance_km is not NULL
+group by customer_id
+````
+|customer_id|avg_distance|
+|---|---|
+|101	|20|
+|102	|16.73|
+|103	|23.4|
+|104	|10|
+|105	|25|
+
+### 5. What was the difference between the longest and shortest delivery times for all orders?
+````sql
+SELECT
+    MAX(duration_mins) AS max_delivery_time,
+    MIN(duration_mins) AS min_delivery_time,
+    MAX(duration_mins) - MIN(duration_mins) AS time_difference
+FROM dbo.#runner_orders_cleaned
+````
+|max_delivery_time|min_delivery_time|time_difference|
+|---|---|---|
+|40	|10	|30|
+
+### 6. What was the average speed for each runner for each delivery and do you notice any trend for these values?
+````sql
+select
+    runner_id,
+    COUNT(r.order_id) order_count,
+    distance_km,
+    duration_mins,
+    concat(round(avg(60*distance_km/duration_mins),2),' km/h') speed 
+from dbo.#runner_orders_cleaned r 
+join dbo.#customer_orders_cleaned c 
+on r.order_id = c.order_id
+WHERE duration_mins is not NULL and distance_km is not NULL
+group by runner_id, distance_km,duration_mins
+````
+|runner_id|order_count|distance_km|duration_mins|speed|
+|---|---|---|---|---|		
+|1	|2	|10	|10	|60 km/h|
+|1	|2	|13.4	|20	|40.2 km/h|
+|1	|1	|20	|27	|44.44 km/h|
+|1	|1	|20	|32	|37.5 km/h|
+|2	|1	|23.4	|15	|93.6 km/h|
+|2	|3	|23.4	|40	|35.1 km/h|
+|2	|1	|25	|25	|60 km/h|
+|3	|1	|10	|15	|40 km/h|
+
+### 7. What is the successful delivery percentage for each runner?
+````sql
+select
+    runner_id,
+    COUNT(*) total_orders,
+    sum(
+        case
+        when cancellation is null then 1 else 0 end) as successful_orders,
+    round((100*sum(
+        case
+        when cancellation is null then 1 else 0 end)/count(*)),0)
+     as successfull_percentage
+from #runner_orders_cleaned
+group by runner_id
+````
+|runner_id|total_orders|successful_orders|successful_percentage|
+|---|---|---|---|
+|1	|4	|4	|100|
+|2	|4	|3	|75|
+|3	|2	|1	|50|
